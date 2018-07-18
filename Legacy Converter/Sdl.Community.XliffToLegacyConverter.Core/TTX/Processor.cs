@@ -583,32 +583,36 @@ namespace Sdl.Community.XliffToLegacyConverter.Core.TTX
 
                 var stateManager = new StateManager();
                 var segmentPair = new SegmentPair();
+	            var tagType = string.Empty;
 
                 while (rdr.Read())
                 {
+	                //var tagType = "empty";
 
-
-                    switch (rdr.NodeType)
-                    {
+					switch (rdr.NodeType)
+					{
                         case XmlNodeType.Element:
                             {
                                 #region  |  XmlNodeType.Element  |
 
                                 var elementName = rdr.Name;
-
-                                var elementAttributes = new Dictionary<string, string>();
+	                            tagType = "empty";
+								var elementAttributes = new Dictionary<string, string>();
                                 while (rdr.MoveToNextAttribute())
                                     elementAttributes.Add(rdr.Name, rdr.Value);
 
 
                                 var utAttributes = new UTAttributes();
 
-
-
                                 foreach (var elementAttribute in elementAttributes)
                                 {
-                                    if (string.Compare(elementAttribute.Key, "Type", StringComparison.OrdinalIgnoreCase) == 0)
-                                        utAttributes.Type = elementAttribute.Value;
+	                                if (string.Compare(elementAttribute.Key, "Type", StringComparison.OrdinalIgnoreCase) ==
+	                                    0)
+	                                {
+										utAttributes.Type = elementAttribute.Value;
+		                                tagType = elementAttribute.Value;
+									}
+                                        
                                     else if (string.Compare(elementAttribute.Key, "Style", StringComparison.OrdinalIgnoreCase) == 0)
                                         utAttributes.Style = elementAttribute.Value;
                                     else if (string.Compare(elementAttribute.Key, "DisplayText", StringComparison.OrdinalIgnoreCase) == 0)
@@ -789,8 +793,8 @@ namespace Sdl.Community.XliffToLegacyConverter.Core.TTX
                                 else if (stateManager.OtherTagsOpen > 0)
                                 {
                                     stateManager.OtherTagsOpen--;
-
-                                    var tags = Core.Processor.SeperateTags(rdr.Value);
+									//aici ar trebui pus  atributul cu end tag
+                                    var tags = Core.Processor.SeperateTags(rdr.Value,tagType);
                                     foreach (var tag in tags)
                                     {
                                         switch (tag.Type)

@@ -1,11 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Documents;
+﻿using System.Collections.Generic;
 
-namespace Sdl.Community.TmAnonymizer.Model
+namespace Sdl.Community.SdlTmAnonymizer.Model
 {
     public class SourceSearchResult : ModelBase
 	{
@@ -16,10 +11,16 @@ namespace Sdl.Community.TmAnonymizer.Model
 		public string SourceText { get; set; }
 		public string TargetText { get; set; }
 		public string TmFilePath { get; set; }
-		public object Document { get; set; }
+		public string IconFilePath { get; set; }
 		public MatchResult MatchResult { get; set; }
 		public MatchResult TargetMatchResult { get; set; }
 		public bool IsServer { get; set; }
+		public List<WordDetails> SelectedWordsDetails { get; set; }	
+		public List<WordDetails> DeSelectedWordsDetails { get; set; }
+		public List<WordDetails> TargetSelectedWordsDetails { get; set; }
+		public List<WordDetails> TargetDeSelectedWordsDetails { get; set; }
+		public bool IsSourceMatch { get; set; }
+		public bool IsTargetMatch { get; set; }
 		public bool TuSelected
 		{
 

@@ -84,7 +84,7 @@ namespace Sdl.Community.MtEnhancedProvider
 					{
 						if (tag != null)
 						{
-							tagText = "</tg" + tag.TagId + ">";
+							tagText = "<tg" + tag.TagId + "/>";
 						}
 					}
 	                _preparedSourceText += tagText;
@@ -112,10 +112,11 @@ namespace Sdl.Community.MtEnhancedProvider
                     dict.Add(tagText, theTag); //add our new tag code to the dict with the corresponding tag
                 }
                 else
-				{//if not a tag sourceSegment.Elements[i].ToString();//
+				{
 					var str = HttpUtility.HtmlEncode(_sourceSegment.Elements[i].ToString()); //HtmlEncode our plain text to be better processed by google and add to string
-					_preparedSourceText += str;
-                }
+																							 //_preparedSourceText += str;
+					_preparedSourceText += _sourceSegment.Elements[i].ToString();
+				}
             }
 			TagsInfo.Clear();
             return dict;
@@ -167,7 +168,7 @@ namespace Sdl.Community.MtEnhancedProvider
                 }
             }
             //Microsoft sends back closing tags that need to be removed
-            segment = RemoveTrailingClosingTags(segment);
+         //   segment = RemoveTrailingClosingTags(segment);
 
             return segment; //this will return a tagged segment
         }
@@ -207,7 +208,7 @@ namespace Sdl.Community.MtEnhancedProvider
         {
             //first create a regex to put our array separators around the tags
             var str = _returnedText;
-			var pattern = @"(<tg[0-9]*\>)|(<\/tg[0-9]*\>)";
+			var pattern = @"(<tg[0-9]*\>)|(<\/tg[0-9]*\>)|(\<tg[0-9]*/\>)";
 			var rgx = new Regex(pattern);
             var matches = rgx.Matches(_returnedText);
 

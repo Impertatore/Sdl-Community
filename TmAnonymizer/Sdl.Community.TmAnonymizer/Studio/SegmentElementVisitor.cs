@@ -1,26 +1,25 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
-using Sdl.Community.TmAnonymizer.Helpers;
-using Sdl.Community.TmAnonymizer.Model;
+using Sdl.Community.SdlTmAnonymizer.Helpers;
+using Sdl.Community.SdlTmAnonymizer.Model;
 using Sdl.LanguagePlatform.Core;
 using Sdl.LanguagePlatform.Core.Tokenization;
 
-namespace Sdl.Community.TmAnonymizer.Studio
+namespace Sdl.Community.SdlTmAnonymizer.Studio
 {
 	public class SegmentElementVisitor : ISegmentElementVisitor
 	{
-		private List<string> _patterns = new List<string>
-		{
-			@"\b(?:\d[ -]*?){13,16}\b",//PCI (Payment Card Industry)
-			@"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",//Email addresses
-			@"\b[A-Z]{2}\s\d{2}\s\d{2}\s\d{2}\s[A-Z]\b",//UK National Insurance Number
-			@"\b(?!000)(?!666)[0-8][0-9]{2}[- ](?!00)[0-9]{2}[- ](?!0000)[0-9]{4}\b", //"Social Security Numbers"
-		};
+		private readonly List<WordDetails> _deSelectedWordsDetails;
+		/// <summary>
+		/// All subsegments in current translation unit
+		/// </summary>
 		public List<object> SegmentColection { get; set; }
+		public SegmentElementVisitor(List<WordDetails> deSelectedWords)
+		{
+			_deSelectedWordsDetails = deSelectedWords;
+		}
 
 		public void VisitText(Text text)
 		{
@@ -37,34 +36,66 @@ namespace Sdl.Community.TmAnonymizer.Studio
 		private void GetSubsegmentPi(string segmentText, List<int> personalData, List<object> segmentCollection)
 		{
 			var elementsColection = segmentText.SplitAt(personalData.ToArray());
-			foreach (var element in elementsColection)
+
+			for (int i = 0; i < elementsColection.Length; i++)
 			{
-				if (!string.IsNullOrEmpty(element))
+				if (!string.IsNullOrEmpty(elementsColection[i]))
 				{
-					if (ContainsPi(element))
+					if (i != 0)
 					{
-						//create new tag
-						var tag = new Tag(TagType.TextPlaceholder, string.Empty, 1);
-						segmentCollection.Add(tag);
+						var shouldAnonymize = ShouldAnonymize(elementsColection[i], elementsColection[i - 1]);
+						//refactor the code put in method
+						if (shouldAnonymize)
+						{
+							//create new tag
+							var tag = new Tag(TagType.TextPlaceholder, string.Empty, 1);
+							segmentCollection.Add(tag);
+						
+						}
+						else
+						{
+							//create text
+							var text = new Text(elementsColection[i]);
+							segmentCollection.Add(text);
+
+						}
 					}
 					else
 					{
-						//create text
-						var text = new Text(element);
-						segmentCollection.Add(text);
+						var shouldAnonymize = ShouldAnonymize(elementsColection[i], string.Empty);
+						//refactor the code put in method
+						if (shouldAnonymize)
+						{
+							//create new tag
+							var tag = new Tag(TagType.TextPlaceholder, string.Empty, 1);
+							segmentCollection.Add(tag);
+
+						}
+						else
+						{
+							//create text
+							var text = new Text(elementsColection[i]);
+							segmentCollection.Add(text);
+
+						}
 					}
 				}
 			}
 		}
 
+		/// <summary>
+		/// Gets a list with the index of PI in segment
+		/// </summary>
+		/// <param name="text"></param>
+		/// <returns></returns>
 		private List<int> GetPersonalData(string text)
 		{
 			var personalDataIndex = new List<int>();
-			foreach (var pattern in _patterns)
+			foreach (var rule in SettingsMethods.GetRules())
 			{
-				var regex = new Regex(pattern, RegexOptions.IgnoreCase);
+				var regex = new Regex(rule.Name, RegexOptions.IgnoreCase);
 				var matches = regex.Matches(text);
-				
+
 				foreach (System.Text.RegularExpressions.Match match in matches)
 				{
 					if (match.Index.Equals(0))
@@ -87,20 +118,62 @@ namespace Sdl.Community.TmAnonymizer.Studio
 							personalDataIndex.Add(match.Index);
 						}
 					}
-					
 				}
 			}
 			return personalDataIndex;
 		}
+
 		private bool ContainsPi(string text)
 		{
-			foreach (var pattern in _patterns)
+			foreach (var rule in SettingsMethods.GetRules())
 			{
-				var regex = new Regex(pattern, RegexOptions.IgnoreCase);
+				var regex = new Regex(rule.Name, RegexOptions.IgnoreCase);
 				var match = regex.Match(text);
 				if (match.Success)
 				{
 					return true;
+				}
+			}
+			return false;
+		}
+
+		private bool ShouldAnonymize(string currentText,string prevText)
+		{
+			foreach (var rule in SettingsMethods.GetRules())
+			{
+				var regex = new Regex(rule.Name, RegexOptions.IgnoreCase);
+				var matches = regex.Matches(currentText);
+				foreach (System.Text.RegularExpressions.Match match in matches)
+				{
+					var matchesDeselected = _deSelectedWordsDetails.Where(n => n.Text.Equals(match.Value.TrimEnd())).ToList();
+					if (matchesDeselected.Any())
+					{
+						//check the previous word to see if is the same word which user deselected
+
+						if (!string.IsNullOrEmpty(prevText))
+						{
+							var combinedText = prevText + currentText;
+
+							var firstPartOfString = combinedText.Substring(0, combinedText.IndexOf(match.Value, StringComparison.Ordinal))
+								.TrimEnd();
+							var prevWord = firstPartOfString.Substring(firstPartOfString.LastIndexOf(" ", StringComparison.Ordinal));
+
+							var matchToBeDeselected = matchesDeselected.FirstOrDefault(w => w.PreviousWord.Equals(prevWord));
+							if (matchToBeDeselected != null)
+							{
+								return false;
+							}
+						}
+						else
+						{
+							//this means the unselected text is checked second time we need to skip it because we already created a text element
+							return false;
+						}
+					}
+					else
+					{
+						return true;
+					}
 				}
 			}
 			return false;

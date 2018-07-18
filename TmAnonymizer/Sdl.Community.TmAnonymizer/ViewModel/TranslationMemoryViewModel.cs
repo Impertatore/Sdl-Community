@@ -1,25 +1,19 @@
-﻿using System;
+﻿using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows;
 using System.Windows.Forms;
 using System.Windows.Forms.Integration;
 using System.Windows.Input;
 using System.Windows.Threading;
-using Sdl.Community.TmAnonymizer.Helpers;
-using Sdl.Community.TmAnonymizer.Model;
-using Sdl.Community.TmAnonymizer.Studio;
-using Sdl.Community.TmAnonymizer.Ui;
-using Sdl.LanguagePlatform.TranslationMemory;
-using Sdl.LanguagePlatform.TranslationMemoryApi;
+using Sdl.Community.SdlTmAnonymizer.Helpers;
+using Sdl.Community.SdlTmAnonymizer.Model;
+using Sdl.Community.SdlTmAnonymizer.Ui;
 using DataFormats = System.Windows.Forms.DataFormats;
 using MessageBox = System.Windows.Forms.MessageBox;
 
-namespace Sdl.Community.TmAnonymizer.ViewModel
+namespace Sdl.Community.SdlTmAnonymizer.ViewModel
 {
 	public class TranslationMemoryViewModel:ViewModelBase
 	{
@@ -30,26 +24,10 @@ namespace Sdl.Community.TmAnonymizer.ViewModel
 		private ICommand _selectAllCommand;
 		private ICommand _dragEnterCommand;
 		private ICommand _loadServerTmCommand;
-		private ICommand _selectCommand;
+		private IList _selectedItems;
 		private ObservableCollection<TmFile> _tmsCollection = new ObservableCollection<TmFile>();
 		private Login _credentials;
 
-		public ICommand SelectCommand => _selectCommand ?? (_selectCommand = new CommandHandler(Select, true));
-
-		//public TranslationMemoryViewModel()
-		//{
-		////	PropertyChanged += TranslationMemoryViewModel_PropertyChanged;
-		//}
-
-		//private void TranslationMemoryViewModel_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
-		//{
-			
-		//}
-
-		private void Select()
-		{
-
-		}
 		public ObservableCollection<TmFile> TmsCollection
 		{
 			get => _tmsCollection;
@@ -62,6 +40,15 @@ namespace Sdl.Community.TmAnonymizer.ViewModel
 				}
 				_tmsCollection = value;
 				OnPropertyChanged(nameof(TmsCollection));
+			}
+		}
+		public IList SelectedItems
+		{
+			get => _selectedItems;
+			set
+			{
+				_selectedItems = value;
+				OnPropertyChanged(nameof(SelectedItems));
 			}
 		}
 		public bool SelectAll
@@ -130,6 +117,10 @@ namespace Sdl.Community.TmAnonymizer.ViewModel
 			}
 		}
 
+		/// <summary>
+		/// Handle drop file event
+		/// </summary>
+		/// <param name="dropedFile"></param>
 		private void HandlePreviewDrop(object dropedFile)
 		{
 			var file = dropedFile as System.Windows.DataObject;
@@ -171,10 +162,27 @@ namespace Sdl.Community.TmAnonymizer.ViewModel
 			var result = MessageBox.Show(@"Do you want to remove selected tms?", @"Confirmation",MessageBoxButtons.OKCancel,MessageBoxIcon.Question);
 			if (result == DialogResult.OK)
 			{
-				var selectedTms = TmsCollection.Where(t => t.ShouldRemove).ToList();
-				foreach (var tm in selectedTms)
+				if (SelectedItems != null)
 				{
-					TmsCollection.Remove(tm);
+					var selectedTms = new List<TmFile>();
+
+					foreach (TmFile selectedItem in SelectedItems)
+					{
+						var rule = new TmFile
+						{
+							Path = selectedItem.Path
+						};
+						selectedTms.Add(rule);
+					}
+					SelectedItems.Clear();
+					foreach (var tm in selectedTms)
+					{
+						var tmToRemove = TmsCollection.FirstOrDefault(r => r.Path.Equals(tm.Path));
+						if (tmToRemove != null)
+						{
+							TmsCollection.Remove(tmToRemove);
+						}
+					}
 				}
 			}
 		}
@@ -221,6 +229,11 @@ namespace Sdl.Community.TmAnonymizer.ViewModel
 			}
 		}
 
+		/// <summary>
+		/// Raise property change event for TM Collection
+		/// </summary>
+		/// <param name="sender"></param>
+		/// <param name="e"></param>
 		private void TmFile_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
 		{
 			OnPropertyChanged(nameof(TmsCollection));

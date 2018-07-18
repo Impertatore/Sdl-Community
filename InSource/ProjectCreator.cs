@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 using System.Xml.Linq;
-using Sdl.Community.InSource.Insights;
 using Sdl.ProjectAutomation.Core;
 using Sdl.ProjectAutomation.FileBased;
 
@@ -16,6 +15,7 @@ namespace Sdl.Community.InSource
         public event ProgressChangedEventHandler ProgressChanged;
         public event EventHandler<ProjectMessageEventArgs> MessageReported;
         private double _currentProgress;
+	    private readonly ProjectRequest _projectRequest;
 
         public ProjectCreator(List<ProjectRequest> requests, ProjectTemplateInfo projectTemplate)
         {
@@ -24,6 +24,11 @@ namespace Sdl.Community.InSource
             SuccessfulRequests = new List<Tuple<ProjectRequest, FileBasedProject>>();
         }
 
+	    public ProjectCreator(ProjectRequest projectRequest, ProjectTemplateInfo projectTemplate)
+	    {
+		    _projectRequest = projectRequest;
+		    ProjectTemplate = projectTemplate;
+	    }
         List<ProjectRequest> Requests
         {
             get; set;
@@ -32,7 +37,6 @@ namespace Sdl.Community.InSource
         public List<Tuple<ProjectRequest, FileBasedProject>> SuccessfulRequests
         {
             get;
-            private set;
         }
 
         ProjectTemplateInfo ProjectTemplate
@@ -44,24 +48,31 @@ namespace Sdl.Community.InSource
         public void Execute()
         {
             _currentProgress = 0;
-            foreach (ProjectRequest request in Requests)
-            {
-                CreateProject(request);
-                _currentProgress += 100.0 / Requests.Count;
-                OnProgressChanged(_currentProgress);
-            }
-            TelemetryService.Instance.AddMetric("Created projects",Requests.Count);
+	        if (Requests!=null)
+	        {
+		        foreach (ProjectRequest request in Requests)
+		        {
+			        CreateProject(request);
+			        _currentProgress += 100.0 / Requests.Count;
+			        OnProgressChanged(_currentProgress);
+		        }
+	        }
+	        else
+	        {
+		        CreateProject(_projectRequest);
+	        }
+            
             OnProgressChanged(100);
         }
 
         private FileBasedProject CreateProject(ProjectRequest request)
         {
-            ProjectInfo projectInfo = new ProjectInfo
+            var projectInfo = new ProjectInfo
             {
                 Name = request.Name,
                 LocalProjectFolder = GetProjectFolderPath(request.Name,request.ProjectTemplate.Uri.LocalPath),
                };
-            FileBasedProject project = new FileBasedProject(projectInfo,
+            var project = new FileBasedProject(projectInfo,
                 new ProjectTemplateReference(request.ProjectTemplate.Uri));
             // new ProjectTemplateReference(ProjectTemplate.Uri));
 
@@ -78,11 +89,14 @@ namespace Sdl.Community.InSource
             //when a template is created from a Single file project, task sequencies is null.
             try
             {
-                TaskSequence taskSequence = project.RunDefaultTaskSequence(projectFiles.GetIds(),
+                var taskSequence = project.RunDefaultTaskSequence(projectFiles.GetIds(),
                     (sender, e)
                         =>
                     {
-                        OnProgressChanged(_currentProgress + (double) e.PercentComplete/Requests.Count);
+	                    if (Requests != null)
+	                    {
+							OnProgressChanged(_currentProgress + (double)e.PercentComplete / Requests.Count);
+						}
                     }
                     , (sender, e)
                         =>
@@ -94,24 +108,24 @@ namespace Sdl.Community.InSource
 
                 if (taskSequence.Status == TaskStatus.Completed)
                 {
-                    SuccessfulRequests.Add(Tuple.Create(request, project));
-                    OnMessageReported(project, String.Format("Project {0} created successfully.", request.Name));
-                    return project;
+	                if (SuccessfulRequests != null)
+	                {
+						SuccessfulRequests.Add(Tuple.Create(request, project));
+		                OnMessageReported(project, string.Format("Project {0} created successfully.", request.Name));
+		                return project;
+					}
                 }
                 else
                 {
-                    OnMessageReported(project, String.Format("Project {0} creation failed.", request.Name));
+                    OnMessageReported(project, string.Format("Project {0} creation failed.", request.Name));
                     return null;
                 }
-
             }
             catch (Exception ex)
             {
                 MessageBox.Show(
                     @"Please go to File -> Setup -> Project templates -> Select a template -> Edit -> Default Task Sequence -> Ok after that run again Content connector");
-                TelemetryService.Instance.AddException(ex);
             }
-
             return project;
         }
 
@@ -143,37 +157,25 @@ namespace Sdl.Community.InSource
             return folder;
         }
 
-       
-
         private void OnProgressChanged(double progress)
         {
-            if (ProgressChanged != null)
-            {
-                ProgressChanged(this, new ProgressChangedEventArgs((int)progress, null));
-            }
-        }
+			ProgressChanged?.Invoke(this, new ProgressChangedEventArgs((int)progress, null));
+		}
 
         private void OnMessageReported(FileBasedProject project, string message)
         {
-            if (MessageReported != null)
-            {
-                MessageReported(this, new ProjectMessageEventArgs { Project = project, Message = message });
-            }
-        }
+			MessageReported?.Invoke(this, new ProjectMessageEventArgs { Project = project, Message = message });
+		}
 
         private void OnMessageReported(FileBasedProject project,ExecutionMessage executionMessage)
         {
- 	        if (MessageReported != null)
-            {
-                MessageReported(this, new ProjectMessageEventArgs {Project = project, Message = executionMessage.Level + ": " + executionMessage.Message});
-            }
-        }
+			MessageReported?.Invoke(this, new ProjectMessageEventArgs { Project = project, Message = executionMessage.Level + ": " + executionMessage.Message });
+		}
     }
 
     class ProjectMessageEventArgs : EventArgs
     {
         public FileBasedProject Project { get; set; }
-
         public string Message {get; set;}
     }
 

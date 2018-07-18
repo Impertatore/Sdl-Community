@@ -1,28 +1,17 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+﻿using System.Collections.Generic;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
-using Sdl.Community.TmAnonymizer.Model;
+using Sdl.Community.SdlTmAnonymizer.Model;
 
-namespace Sdl.Community.TmAnonymizer.Helpers
+namespace Sdl.Community.SdlTmAnonymizer.Helpers
 {
     public  class PersonalInformation
     {
-	    private List<Rule> _patterns;
+	    private readonly List<Rule> _patterns;
 		public PersonalInformation(List<Rule> patterns)
 		{
 			_patterns = patterns;
 		}
-	    //private static List<string> _patterns = new List<string>
-	    //{
-		   // @"\b(?:\d[ -]*?){13,16}\b",//PCI (Payment Card Industry)
-		   // @"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",//Email addresses
-		   // @"\b[A-Z]{2}\s\d{2}\s\d{2}\s\d{2}\s[A-Z]\b",//UK National Insurance Number
-		   // @"\b(?!000)(?!666)[0-8][0-9]{2}[- ](?!00)[0-9]{2}[- ](?!0000)[0-9]{4}\b", //"Social Security Numbers"
-	    //};
-
+		
 		public bool ContainsPi(string text)
 	    {
 		    foreach (var pattern in _patterns)
@@ -37,6 +26,11 @@ namespace Sdl.Community.TmAnonymizer.Helpers
 		    return false;
 	    }
 
+		/// <summary>
+		/// Gets a list with the positions and lenghts of PI in text 
+		/// </summary>
+		/// <param name="text">Segment plain text</param>
+		/// <returns>List of PI positions</returns>
 	    public  List<Position> GetPersonalDataPositions(string text)
 	    {
 		    var personalDataIndex = new List<Position>();

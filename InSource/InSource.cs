@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using Sdl.Community.InSource.Insights;
+
 
 namespace Sdl.Community.InSource
 {
@@ -43,8 +43,6 @@ namespace Sdl.Community.InSource
          
                 }
             }
-            
-           
         }
 
         public static List<ProjectRequest>  GetIncomingRequestsFolder()
@@ -66,7 +64,6 @@ namespace Sdl.Community.InSource
 
         internal void RequestAccepted(ProjectRequest request)
         {
-            
             _requestPath = Path.Combine(request.Path, request.Name);
 
             var delete = Persistence.LoadRequest().DeleteFolders;
@@ -107,13 +104,11 @@ namespace Sdl.Community.InSource
                         {
                             Directory.Delete(_requestPath);
                         }
-
-
                     }
                 }
                 catch (Exception exception)
                 {
-                    TelemetryService.Instance.AddException(exception);
+	                throw exception;
                 }
             }
             else
@@ -125,10 +120,9 @@ namespace Sdl.Community.InSource
                 catch (Exception ex)
                 {
 
-                    TelemetryService.Instance.AddException(ex);
+	                throw ex;
                 }
             }
-
             Persistence.Update(request);
         }
 
@@ -160,7 +154,7 @@ namespace Sdl.Community.InSource
                 }
                 catch (Exception e)
                 {
-                    TelemetryService.Instance.AddException(e);
+	                throw e;
                 }
                 
             }
@@ -171,7 +165,6 @@ namespace Sdl.Community.InSource
                     CheckForSubfolders(subdirectory, path);
                 }
             }
-            
         }
         private void MoveFilesToAcceptedFolder(string[] files,string acceptedFolderPath)
         {
@@ -185,7 +178,7 @@ namespace Sdl.Community.InSource
                 }
                 catch (Exception e)
                 {
-                    TelemetryService.Instance.AddException(e);
+	                throw e;
                 }
             }
         }

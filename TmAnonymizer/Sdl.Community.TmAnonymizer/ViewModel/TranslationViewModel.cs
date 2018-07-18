@@ -1,17 +1,19 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Linq;
 using System.Windows.Forms;
 using System.Windows.Input;
-using Sdl.Community.TmAnonymizer.Helpers;
-using Sdl.Community.TmAnonymizer.Model;
-using Sdl.Community.TmAnonymizer.Ui;
+using Sdl.Community.SdlTmAnonymizer.Helpers;
+using Sdl.Community.SdlTmAnonymizer.Model;
+using Sdl.Community.SdlTmAnonymizer.Ui;
 using Sdl.LanguagePlatform.TranslationMemoryApi;
 using MessageBox = System.Windows.Forms.MessageBox;
 
-namespace Sdl.Community.TmAnonymizer.ViewModel
+namespace Sdl.Community.SdlTmAnonymizer.ViewModel
 {
 	public class TranslationViewModel : ViewModelBase
 	{
@@ -20,77 +22,80 @@ namespace Sdl.Community.TmAnonymizer.ViewModel
 		private ObservableCollection<Rule> _rules;
 		private Rule _selectedItem;
 		private bool _selectAll;
-		//private bool _isChecked;
 		private ICommand _selectAllCommand;
 		private ICommand _previewCommand;
+		private ICommand _removeRuleCommand;
+		private ICommand _importCommand;
+		private ICommand _exportCommand;
 		private ObservableCollection<SourceSearchResult> _sourceSearchResults;
-		private readonly List<AnonymizeTranslationMemory> _anonymizeTranslationMemories;
-		private readonly TranslationMemoryViewModel _translationMemoryViewModel;
+		private readonly ObservableCollection<AnonymizeTranslationMemory> _anonymizeTranslationMemories;
+		private static TranslationMemoryViewModel _translationMemoryViewModel;
+		private readonly BackgroundWorker _backgroundWorker;
+		private WaitWindow _waitWindow;
+		private IList _selectedItems;
 
 		public TranslationViewModel(TranslationMemoryViewModel translationMemoryViewModel)
 		{
+			_selectedItems = new List<Rule>();
 			_translationMemoryViewModel = translationMemoryViewModel;
-			_tmsCollection = _translationMemoryViewModel.TmsCollection;
-			_anonymizeTranslationMemories = new List<AnonymizeTranslationMemory>();
-			_rules = Constants.GetDefaultRules();
+			_anonymizeTranslationMemories = new ObservableCollection<AnonymizeTranslationMemory>();
+			_rules = SettingsMethods.GetRules();
+			foreach (var rule in _rules)
+			{
+				rule.PropertyChanged += Rule_PropertyChanged;
+			}
 			_sourceSearchResults = new ObservableCollection<SourceSearchResult>();
+			_backgroundWorker = new BackgroundWorker();
+			_backgroundWorker.DoWork += _backgroundWorker_DoWork;
+			_backgroundWorker.RunWorkerCompleted += _backgroundWorker_RunWorkerCompleted;
+			_tmsCollection = _translationMemoryViewModel.TmsCollection;
 			_tmsCollection.CollectionChanged += _tmsCollection_CollectionChanged;
 			_translationMemoryViewModel.PropertyChanged += _translationMemoryViewModel_PropertyChanged;
+			RulesCollection.CollectionChanged += RulesCollection_CollectionChanged;
 		}
 
-		private void _translationMemoryViewModel_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+		public IList SelectedItems
 		{
-			if (e.PropertyName.Equals("TmsCollection"))
+			get => _selectedItems;
+			set
 			{
-				//removed from tm collection
-				var unselectedTms = _tmsCollection.Where(t=>!t.IsSelected).ToList();
-				foreach (var tm in unselectedTms)
-				{
-					var anonymizedTmToRemove = _anonymizeTranslationMemories.FirstOrDefault(t => t.TmPath.Equals(tm.Path));
-					if (anonymizedTmToRemove != null)
-					{
-						_anonymizeTranslationMemories.Remove(anonymizedTmToRemove);
-					}
+				_selectedItems = value;
+				OnPropertyChanged(nameof(SelectedItems));
+			}
+		}
+		private void _backgroundWorker_RunWorkerCompleted(object sender, RunWorkerCompletedEventArgs e)
+		{
+			if (_waitWindow != null)
+			{
+				_waitWindow.Close();
 
-					//remove search results for that tm
-					var searchResultsForTm = SourceSearchResults.Where(r => r.TmFilePath.Equals(tm.Path)).ToList();
-					foreach (var result in searchResultsForTm)
-					{
-						SourceSearchResults.Remove(result);
-					}
-				}
-
-
+				//open preview window
+				var previewWindow = new PreviewWindow();
+				var window = previewWindow.DialogCoordinatorWindow;
+				var previewViewModel = new PreviewWindowViewModel(SourceSearchResults, _anonymizeTranslationMemories,
+					_tmsCollection, _translationMemoryViewModel, window);
+				previewWindow.DataContext = previewViewModel;
+				previewWindow.Closing += PreviewWindow_Closing;
+				previewWindow.Show();
 			}
 		}
 
-		public ICommand SelectAllCommand => _selectAllCommand ?? (_selectAllCommand = new CommandHandler(SelectAllRules, true));
-		public ICommand PreviewCommand => _previewCommand ?? (_previewCommand = new CommandHandler(PreviewChanges, true));
-	
-
-		private void _tmsCollection_CollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
+		private void PreviewWindow_Closing(object sender, CancelEventArgs e)
 		{
-			if (e.Action == NotifyCollectionChangedAction.Remove)
-			{
-				if (e.OldItems == null) return;
-				foreach (TmFile removedTm in e.OldItems)
-				{
-					var tusForRemovedTm = SourceSearchResults.Where(t => t.TmFilePath.Equals(removedTm.Path)).ToList();
-					foreach (var tu in tusForRemovedTm)
-					{
-						SourceSearchResults.Remove(tu);
-					}
-				}
-			}
-			
+			SourceSearchResults.Clear();
 		}
 
-		private void PreviewChanges()
+		private void _backgroundWorker_DoWork(object sender, DoWorkEventArgs e)
 		{
 			var selectedTms = _tmsCollection.Where(t => t.IsSelected).ToList();
 			var selectedRulesCount = RulesCollection.Count(r => r.IsSelected);
 			if (selectedTms.Count > 0 && selectedRulesCount > 0)
 			{
+				System.Windows.Application.Current.Dispatcher.Invoke(delegate
+				{
+					_waitWindow = new WaitWindow();
+					_waitWindow.Show();
+				});
 				var serverTms = selectedTms.Where(s => s.IsServerTm).ToList();
 				if (serverTms.Any())
 				{
@@ -103,33 +108,221 @@ namespace Sdl.Community.TmAnonymizer.ViewModel
 					{
 						var tus = Tm.ServerBasedTmGetTranslationUnits(translationProvider, serverTm.Path,
 							SourceSearchResults, GetSelectedRules());
-						if (!_anonymizeTranslationMemories.Exists(n => n.TmPath.Equals(tus.TmPath)))
+						if (!_anonymizeTranslationMemories.Any(n => n.TmPath.Equals(tus.TmPath)))
 						{
 							_anonymizeTranslationMemories.Add(tus);
 						}
 					}
 				}
-			
+
 				//file based tms
 				foreach (var tm in selectedTms.Where(s => !s.IsServerTm))
 				{
 					var tus = Tm.FileBaseTmGetTranslationUnits(tm.Path, SourceSearchResults, GetSelectedRules());
-					if (!_anonymizeTranslationMemories.Exists(n => n.TmPath.Equals(tus.TmPath)))
+					if (!_anonymizeTranslationMemories.Any(n => n.TmPath.Equals(tus.TmPath)))
 					{
 						_anonymizeTranslationMemories.Add(tus);
 					}
 				}
-				var previewWindow = new PreviewWindow();
-				var previewViewModel = new PreviewWindowViewModel(SourceSearchResults, _anonymizeTranslationMemories,
-					_tmsCollection, _translationMemoryViewModel);
-				previewWindow.DataContext = previewViewModel;
-				previewWindow.Show();
 			}
 			else
 			{
 				MessageBox.Show(@"Please select at least one translation memory and a rule to preview the changes",
 					"", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 			}
+			
+		}
+
+		private void _translationMemoryViewModel_PropertyChanged(object sender, PropertyChangedEventArgs e)
+		{
+			if (e.PropertyName.Equals("TmsCollection"))
+			{
+				//removed from tm collection
+				RefreshPreviewWindow();
+			}
+		}
+		private void RulesCollection_CollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
+		{
+			if (e.Action == NotifyCollectionChangedAction.Add)
+			{
+				foreach (var item in e.NewItems)
+				{
+					var rule = (Rule)item;
+					rule.PropertyChanged += Rule_PropertyChanged;
+				}
+			}
+		}
+
+		private void Rule_PropertyChanged(object sender, PropertyChangedEventArgs e)
+		{
+			var settings = SettingsMethods.GetSettings();
+			settings.Rules = RulesCollection;
+
+			SettingsMethods.SaveSettings(settings);
+		}
+		public ICommand SelectAllCommand => _selectAllCommand ?? (_selectAllCommand = new CommandHandler(SelectAllRules, true));
+		public ICommand PreviewCommand => _previewCommand ?? (_previewCommand = new CommandHandler(PreviewChanges, true));
+
+		public ICommand RemoveRuleCommand => _removeRuleCommand ??(_removeRuleCommand = new CommandHandler(RemoveRule, true));
+		public ICommand ImportCommand => _importCommand ?? (_importCommand = new CommandHandler(Import, true));
+		public ICommand ExportCommand => _exportCommand ?? (_exportCommand = new CommandHandler(Export, true));
+
+		private void Export()
+		{
+			if (SelectedItems.Count > 0)
+			{
+				var selectedRules = new List<Rule>();
+				var fileDialog = new SaveFileDialog
+				{
+					Title = @"Export selected expressions",
+					Filter = @"Excel |*.xlsx"
+				};
+				var result = fileDialog.ShowDialog();
+				if (result == DialogResult.OK && fileDialog.FileName != string.Empty)
+				{
+					foreach (Rule rule in SelectedItems)
+					{
+						selectedRules.Add(rule);
+					}
+					Expressions.ExportExporessions(fileDialog.FileName, selectedRules);
+					MessageBox.Show(@"File was exported successfully to selected location", "", MessageBoxButtons.OK, MessageBoxIcon.Information);
+				}
+			}
+			else
+			{
+				MessageBox.Show(@"Please select at least one row to export", "", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+			}
+		}
+
+
+		private void Import()
+		{
+			var fileDialog = new OpenFileDialog
+			{
+				Title = @"Please select the files you want to import",
+				Filter = @"Excel |*.xlsx",
+				CheckFileExists = true,
+				CheckPathExists = true,
+				DefaultExt = "xlsx",
+				Multiselect = true
+			};
+			var result = fileDialog.ShowDialog();
+			if (result == DialogResult.OK && fileDialog.FileNames.Length > 0)
+			{
+				var importedExpressions = Expressions.GetImportedExpressions(fileDialog.FileNames.ToList());
+
+				foreach (var expression in importedExpressions)
+				{
+					var ruleExist = RulesCollection.FirstOrDefault(s => s.Name.Equals(expression.Name));
+					if (ruleExist == null)
+					{
+						RulesCollection.Add(expression);
+					}
+				}
+				var settings = SettingsMethods.GetSettings();
+				settings.Rules = RulesCollection;
+				SettingsMethods.SaveSettings(settings);
+			}
+		}
+		private void RemoveRule()
+		{
+			var message =MessageBox.Show(@"Are you sure you want to remove selected rules?",
+				"", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+			if (message == DialogResult.OK)
+			{
+				if (SelectedItems != null)
+				{
+					var selectedRules = new List<Rule>();
+
+					foreach (var selectedItem in SelectedItems)
+					{
+						if (!selectedItem.GetType().Name.Equals("NamedObject"))
+						{
+							var item = (Rule) selectedItem;
+							var rule = new Rule
+							{
+								Id = item.Id
+							};
+							selectedRules.Add(rule);
+						}
+						
+					}
+					SelectedItems.Clear();
+					foreach (var rule in selectedRules)
+					{
+						var ruleRoRemove = RulesCollection.FirstOrDefault(r => r.Id.Equals(rule.Id));
+						if (ruleRoRemove != null)
+						{
+							RulesCollection.Remove(ruleRoRemove);
+						}
+					}
+				}
+
+				var settings = SettingsMethods.GetSettings();
+				settings.Rules = RulesCollection;
+				SettingsMethods.SaveSettings(settings);
+			}
+			
+		}
+
+		private void _tmsCollection_CollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
+		{
+			if (e.Action == NotifyCollectionChangedAction.Remove)
+			{
+				if (e.OldItems == null) return;
+				foreach (TmFile removedTm in e.OldItems)
+				{
+					//Remove search resoults for deleted tm
+					var tusForRemovedTm = SourceSearchResults.Where(t => t.TmFilePath.Equals(removedTm.Path)).ToList();
+					foreach (var tu in tusForRemovedTm)
+					{
+						SourceSearchResults.Remove(tu);
+					}
+					//remove the tm from the list use in preview windoew
+					var removed=_anonymizeTranslationMemories.FirstOrDefault(t => t.TmPath.Equals(removedTm.Path));
+					if (removed != null)
+					{
+						_anonymizeTranslationMemories.Remove(removed);
+					}
+				}
+			}
+			if (e.Action == NotifyCollectionChangedAction.Add)
+			{
+				foreach (TmFile newTm in e.NewItems)
+				{
+					newTm.PropertyChanged += NewTm_PropertyChanged;	
+				}
+			}
+		}
+
+		private void NewTm_PropertyChanged(object sender, PropertyChangedEventArgs e)
+		{
+			RefreshPreviewWindow();
+		}
+
+		private void RefreshPreviewWindow()
+		{
+			var unselectedTms = _tmsCollection.Where(t => !t.IsSelected).ToList();
+			foreach (var tm in unselectedTms)
+			{
+				var anonymizedTmToRemove = _anonymizeTranslationMemories.FirstOrDefault(t => t.TmPath.Equals(tm.Path));
+				if (anonymizedTmToRemove != null)
+				{
+					_anonymizeTranslationMemories.Remove(anonymizedTmToRemove);
+				}
+
+				//remove search results for that tm
+				var searchResultsForTm = SourceSearchResults.Where(r => r.TmFilePath.Equals(tm.Path)).ToList();
+				foreach (var result in searchResultsForTm)
+				{
+					SourceSearchResults.Remove(result);
+				}
+			}
+		}
+
+		private void PreviewChanges()
+		{
+			_backgroundWorker.RunWorkerAsync();
 		}
 
 		private List<Rule> GetSelectedRules()
@@ -157,20 +350,7 @@ namespace Sdl.Community.TmAnonymizer.ViewModel
 				OnPropertyChanged(nameof(SelectAll));
 			}
 		}
-		//public bool IsChecked
-		//{
-		//	get => _isChecked;
 
-		//	set
-		//	{
-		//		if (Equals(value, _isChecked))
-		//		{
-		//			return;
-		//		}
-		//		_isChecked = value;
-		//		OnPropertyChanged(nameof(IsChecked));
-		//	}
-		//}
 		public ObservableCollection<SourceSearchResult> SourceSearchResults
 		{
 			get => _sourceSearchResults;
